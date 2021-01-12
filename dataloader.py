@@ -16,6 +16,8 @@ class dataloader(Dataset):
         json_files = glob(json_root)
         self.data = []
         for json_file in json_files:
+            with open(map_root + json_file.split('/')[-3] + ".json") as json_data:
+                map_array = np.array(json.load(json_data))
             with open(json_file) as json_data:
                 data = json.load(json_data)
             for scene in data['scene_attendent'].keys():  # json 파일안의 scene 하나
@@ -60,13 +62,12 @@ class dataloader(Dataset):
                                 split_start = data['data'][a]['time'].index(time)
                                 xy = xy[split_start:]
 
-
                             initial_data["xy"].append(prefix + xy + postfix)
-
+                            
+                        initial_data["xy"] =np.transpose(initial_data["xy"], (0,2,1))
                         initial_data["xy"] = np.array(initial_data["xy"])
+                        initial_data["map"] = map_array
                         self.data.append(initial_data)
-    #                     print(initial_data["xy"].shape)
-    #                     print(initial_data)
                 
                 
                 
