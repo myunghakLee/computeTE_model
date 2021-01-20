@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # +
 import numpy as np
 import torch
@@ -30,6 +31,28 @@ class embedding_map_net(nn.Module):
 
 
 # +
+def repeat(tensor, num_reps):
+    """
+    Inputs:
+    -tensor: 2D tensor of any shape
+    -num_reps: Number of times to repeat each row
+    Outpus:
+    -repeat_tensor: Repeat each row such that: R1, R1, R2, R2
+    """
+    col_len = tensor.size(1)
+    tensor = tensor.unsqueeze(dim=1).repeat(1, num_reps, 1)
+    tensor = tensor.view(-1, col_len)
+    return tensor
+a = torch.tensor([[1,20,3],[4,5,6]])
+# a = a.repeat(2,1)
+
+
+q1 = a.repeat(2,1)
+q2 = repeat(a, 2)
+q1-q2
+a = a.repeat(2,1)
+a
+# +
 
 # class edge2node:
 #     def __init__(self, embedding_dim = 64):
@@ -55,7 +78,7 @@ class compute_TE(nn.Module):
                                          stride = (2,2), padding = (3,3), bias = False)
 
         
-        self.node2edgeConv = nn.Conv1d(in_channels = 3,out_channels = 1, kernel_size = 3, stride = 1, padding = 1, bias = True)
+        self.node2edgeConv = nn.Conv1d(in_channels = 4,out_channels = 1, kernel_size = 3, stride = 1, padding = 1, bias = True)
         self.lastmlp = nn.Linear(embedding_dim, 1)
         self.node2edge =nn.Sequential(self.node2edgeConv,
                                       nn.ReLU(), 
@@ -65,7 +88,35 @@ class compute_TE(nn.Module):
         self.CEloss = nn.CrossEntropyLoss()
         self.AA = nn.Linear(64, 11)
         self.map_embedding_layer = embedding_map_net()
+        self.spatial_embedding = nn.Linear(2, embedding_dim)
         
+        self.last_mlp1 = nn.Linear(128,64)
+        self.last_mlp2 = nn.Linear(64,16)
+        self.last_mlp3 = nn.Linear(16,4)
+        self.last_mlp4 = nn.Linear(4,1)
+#         self.last_mlp5 = nn.Linear(8,1)
+        self.last_embedding = nn.Sequential(
+                            self.last_mlp1,
+                            nn.ReLU(),
+                            self.last_mlp2,
+                            nn.ReLU(),
+                            self.last_mlp3,
+                            nn.ReLU(),
+                            self.last_mlp4
+        )
+        
+    def repeat(self, tensor, num_reps):
+        """
+        Inputs:
+        -tensor: 2D tensor of any shape
+        -num_reps: Number of times to repeat each row
+        Outpus:
+        -repeat_tensor: Repeat each row such that: R1, R1, R2, R2
+        """
+        col_len = tensor.size(1)
+        tensor = tensor.unsqueeze(dim=1).repeat(1, num_reps, 1)
+        tensor = tensor.view(-1, col_len)
+        return tensor
         
     def forward(self, xy, speed,load_map,is_split=True, hidden_size = 64, device = "cuda"):
         """
@@ -78,7 +129,7 @@ class compute_TE(nn.Module):
         ## Embedding
         num_attendent = xy.shape[0]
         embedding_vec = self.speed_embedding(speed.view(-1,2)).view(-1,num_attendent, self.embedding)
-        last_position_embedding = self.final_xy_embedding(xy[...,-1]) # n, 64
+        last_pos = xy[...,-1] # n, 64
         
         ### LSTM
         state_tuple = (torch.zeros((1, num_attendent, self.embedding)).to(device), 
@@ -90,50 +141,23 @@ class compute_TE(nn.Module):
         map_embedding = self.map_embedding_layer(load_map.reshape(1,1,512,512))
         
         node = output[-1] #(n, 64)
+        attendent_num = len(node)
+        node = node.repeat(attendent_num,1) # (1,2,3) --> (1,2,3,1,2,3,1,2,3)
+        
+        last_pos1 = last_pos.repeat(attendent_num,1) # (1,2,3) --> (1,2,3,1,2,3,1,2,3)
+        last_pos2 = self.repeat(last_pos, attendent_num) # (1,2,3) --> (1,1,1,2,2,2,3,3,3)
+        curr_rel_pos = last_pos1 - last_pos2
+        curr_rel_embedding = self.spatial_embedding(curr_rel_pos)
         
         
-#         predictTE = self.AA(node)
-
-#         for i in range(len(node)):
-#             node[i] = torch.cat((node[i].unsqueeze(0), last_position_embedding[i].unsqueeze(0)), dim = 0)
-
-        predictTE = self.calc_edge(node[0], node[0],last_position_embedding[0] - last_position_embedding[0]).unsqueeze(0)
-        for i in range(1, len(node)):
-            predictTE = torch.cat((predictTE, self.calc_edge(node[0], node[i],last_position_embedding[0] - last_position_embedding[i]).unsqueeze(0)))
-        predictTE = predictTE.unsqueeze(0)
-
-        for i in range(1,len(node)):
-            output = self.calc_edge(node[i], node[0],last_position_embedding[i] - last_position_embedding[0]).unsqueeze(0)
-            for j in range(1, len(node)):
-                output = torch.cat((output, self.calc_edge(node[i], node[j], last_position_embedding[i] - last_position_embedding[j]).unsqueeze(0)))
-            predictTE =  torch.cat((predictTE, output.unsqueeze(0)))
-
-# #         predictTE = torch.cat([])
+        # a와a의 상대적 위치 그리고 a의 embedding
+        # a와b의 상대적 위치 그리고 b의 embedding
+        # a와c의 상대적 위치 그리고 c의 embedding
+        # ...
+        mlp_input = torch.cat([curr_rel_embedding, node], dim=1) 
         
-    
-# #         predictTE = torch.cat([torch.cat([self.calc_edge(node[i], node[j]) for j in range(len(node))]) for i in range(len(node))])
-    
-# # #         predictTE.requires_grad = True
-# #         #compute edge
+        predictTE = self.last_embedding(mlp_input)
 
-#         TE_MAT = []
-#         for i in range(1,len(node)):
-#             TE_VEC = []
-#             for j in range(len(node)):
-#                 TE_VEC.append(self.calc_edge(node[i], node[j]))
-#             TE_MAT.append(TE_VEC)
-#         TE_MAT = torch.ten
-# #                 predictTE[i][j] = self.node2edge(\
-# #                                     torch.cat((node[i].unsqueeze(0), node[j].unsqueeze(0))).unsqueeze(0)\
-# #                                                         ).squeeze() # 3, 64
-# #                 predictTE[j][i] = self.node2edge(\
-# #             torch.cat((node[j].unsqueeze(0), node[i].unsqueeze(0))).unsqueeze(0)\
-# #                                                         ).squeeze() # 3, 64
-#             TE_VEC = torch.tensor([TE_VEC])
-#             predictTE = torch.cat(predictTE, TE_VEC, dim = 1)
-# #         loss = self.CEloss(torch.argmax(predictTE, dim = 1), torch.argmax(TE, dim = 1))
-# #         loss += self.CEloss(torch.argmax(predictTE, dim = 0), torch.argmax(TE, dim = 0))
-        
         return predictTE, node
 
     def calc_edge(self, node1, node2,final_rel):

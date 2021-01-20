@@ -45,7 +45,7 @@ class dataloader(Dataset):
                             split_end = -1
                             if data['data'][a]['time'][-1] < time + time_length:
                                 plus_num = int((time + time_length - data['data'][a]['time'][-1])/100)
-                                postfix = [[0,0]]* plus_num
+                                postfix = [[0.0,0.0]]* plus_num
                             else:
                                 try:
                                     split_end = data['data'][a]['time'].index(time + time_length)
@@ -57,16 +57,19 @@ class dataloader(Dataset):
 
                             if data['data'][a]['time'][0] > time:
                                 plus_num = int((data['data'][a]['time'][0] - time)/100)
-                                prefix = [[0,0]]* plus_num
+                                prefix = [[0.0,0.0]]* plus_num
                             else:
                                 split_start = data['data'][a]['time'].index(time)
                                 xy = xy[split_start:]
 
                             initial_data["xy"].append(prefix + xy + postfix)
                             
-                        initial_data["xy"] =np.transpose(initial_data["xy"], (0,2,1))
-                        initial_data["xy"] = np.array(initial_data["xy"])
-                        initial_data["map"] = map_array
+                        initial_data["TE"] = torch.tensor(initial_data["TE"]).float()    
+                        initial_data["xy"] =torch.tensor(np.transpose(initial_data["xy"], (0,2,1))).float()
+                        initial_data["xy"] = torch.tensor(np.array(initial_data["xy"])).float()
+                        initial_data["map"] = torch.tensor(map_array).float()
+                        
+                        initial_data = [initial_data["xy"], initial_data["map"], initial_data["TE"]]
                         self.data.append(initial_data)
                 
                 

@@ -42,11 +42,9 @@ dataset_loader_test = torch.utils.data.DataLoader(dataset_test,
 
 TEmodel = model.compute_TE()
 TEmodel.to(device)
-optimizer = optim.Adam(TEmodel.parameters(), lr=0.001)
+optimizer = optim.Adam(TEmodel.parameters(), lr=0.0001)
 criterion = nn.MSELoss()
-# -
 
-torch.randn((5,5))
 
 # +
 acc_all = []
@@ -54,8 +52,6 @@ loss_all = []
 low_acc = []
 high_acc = []
 
-low_info = []
-high_info = []
 decay = 1.0
 for epoch in range(500):
     acc_arr = []
@@ -63,6 +59,7 @@ for epoch in range(500):
     if epoch % 4 == 3:
         decay *= 0.9
     for i, batch in tqdm(enumerate(dataset_loader_train)):
+        
 
         xy,load_map,TE = batch
         
@@ -73,15 +70,12 @@ for epoch in range(500):
         
         
         max_TE = torch.max(TE)
-#         if max_TE > 0.00001:
-#             TE /= max_TE
-#         else:
-#             TE -= TE
-        TE*= 10.0
-    
-#         TE -= TE
-#         TE += torch.randn((len(TE), len(TE)))
-
+        if max_TE > 0.01:
+            TE /= max_TE
+        else:
+            TE -= TE
+            
+        
         xy = xy[0].to(device)
         TE = TE[0].to(device)
         load_map = load_map[0].to(device)
@@ -92,7 +86,9 @@ for epoch in range(500):
         
         optimizer.zero_grad()
         predictTE, N = TEmodel(xy,speed, load_map)
-        predictTE = predictTE.reshape(len(TE),len(TE)).T
+#         predictTE = predictTE.reshape(len(TE),len(TE)).T
+        for i in range(len(predictTE)):
+            predictTE[i][i] -= predictTE[i][i]
 
         predictTE_row = torch.argsort(predictTE, dim = 1).to(device).float()
         predictTE_col = torch.argsort(predictTE, dim = 0).to(device).float()
@@ -118,10 +114,7 @@ for epoch in range(500):
         
         
         loss = criterion(predictTE, TE) * decay
-        
         loss_all.append(loss.item())
-        
-    
         loss.backward()
         optimizer.step()
     print(f"epoch {epoch} loss : ", np.mean(loss_all))
@@ -136,16 +129,16 @@ for epoch in range(500):
             TE = TE[0].to(device)
             load_map = load_map[0].to(device)
             max_TE = torch.max(TE)
-            if max_TE > 0.00001:
+            if max_TE > 0.0001:
                 TE /= max_TE
             else:
                 TE -= TE
-            TE*= 10.0
-            TE -= TE
             speed = torch.cat((torch.zeros((xy.shape[0],2,1)).to(device),
                                    xy[:,:,1:] - xy[:,:,:-1]), dim = 2).to(device)
 
             predictTE, N = TEmodel(xy,speed, load_map)
+            for i in range(len(predictTE)):
+                predictTE[i][i] -= predictTE[i][i]
             predictTE = predictTE.reshape(len(TE),len(TE))
 
             
@@ -154,49 +147,59 @@ for epoch in range(500):
             acc = torch.sum(torch.cat((row,column))) / (len(row)*2.0)
             if acc < 0.2:
                 low_acc.append([predictTE, TE])
-                low_info.append([xy])
             elif acc > 0.6:
                 high_acc.append([predictTE, TE])
-                high_info.append([xy])
+                
             acc_arr.append(acc.item())
             acc_all.append(acc.item())
     print(f"epoch {epoch} Accuracy : ", np.mean(acc_arr))
     val_acc.append(np.mean(acc_arr))
 #     print(TE, predictTE)
+# -
+
+
+predictTE[0].unsqueeze(0)
+
+low_acc[-5]
+
+high_acc[-18]
+
+# +
+from matplotlib import pyplot as plt
+idx = -5
+df = low_acc[idx][0].tolist()
+plt.title("predictTE")
+plt.pcolor(df)
+plt.colorbar()
+plt.show()
+
+df = low_acc[idx][1].tolist()
+plt.title("groundTruth")
+plt.pcolor(df)
+plt.colorbar()
+plt.show()
+
 
 
 # +
-length_low = []
-for l in high_info:
-    length_low.append(len(l[0]))
-    
-sum(length_low)/len(length_low)
+from matplotlib import pyplot as plt
+idx = 30
+df = high_acc[idx][0].tolist()
+plt.title("predictTE")
+plt.pcolor(df)
+plt.colorbar()
+plt.show()
+
+df = high_acc[idx][1].tolist()
+plt.title("groundTruth")
+plt.pcolor(df)
+plt.colorbar()
+plt.show()
+
+
 # -
 
-len(low_info)
-
-low_info[0]
-
-TE
-
-high_acc[8]
-
-loss = nn.CrossEntropyLoss()
-input = torch.tensor([[1,0,0,0,0]]).float()
-input.requires_grad =True
-target = torch.empty(1, dtype=torch.long).random_(5)
-output = loss(input, target)
-output.backward()
-output,input,target
-
-input, target
-
-predictTE
-
-a = torch.randn(4, 4)
-torch.argsort(a, dim=0)
-
-0.9 ** 20
+high_acc[5]
 
 loss
 
